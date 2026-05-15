@@ -678,7 +678,7 @@ open class ConsoleImpl(val uiHandler: UiHandler) : AbstractConsole() {
     }
 
     @ScriptInterface
-    fun setContentTextColors(colors: Array<out Int?>) {
+    fun setContentTextColors(colors: Array<out Int>) {
         configurator.setContentTextColors(colors)
         uiHandler.post {
             getFloatingConsoleView()?.setTextColors(colors)
@@ -917,7 +917,7 @@ open class ConsoleImpl(val uiHandler: UiHandler) : AbstractConsole() {
             private set
 
         @Volatile
-        var contentTextColors: Array<out Int?>? = null
+        var contentTextColors: Array<out Int>? = null
             private set
 
         @Volatile
@@ -987,7 +987,7 @@ open class ConsoleImpl(val uiHandler: UiHandler) : AbstractConsole() {
         }
 
         fun setContentTextColors(colors: Array<out @OmniColor Any?>) = also {
-            contentTextColors = colors.map { it?.let { Colors.toIntRhino(it) } }.toTypedArray()
+            contentTextColors = colors.map { Colors.toIntRhino(it) }.toTypedArray()
         }
 
         fun setContentBackgroundColor(@OmniColor color: Any?) = also {
