@@ -1,4 +1,4 @@
-@file:Suppress("SpellCheckingInspection")
+@file:Suppress("SpellCheckingInspection", "DEPRECATION")
 
 import com.android.build.api.variant.FilterConfiguration
 import org.gradle.kotlin.dsl.support.uppercaseFirstChar
@@ -585,19 +585,19 @@ android {
         //  # }
         //  !
         getByName("main") {
-            assets.directories.add("src/main/assets")
+            assets.srcDir("src/main/assets")
         }
         getByName("release") {
-            java.directories.add("src/release/java")
+            java.srcDir("src/release/java")
         }
         getByName("debug") {
-            java.directories.add("src/debug/java")
+            java.srcDir("src/debug/java")
         }
         getByName(flavorNameApp) {
-            assets.directories.add("src/main/assets-$flavorNameApp")
+            assets.srcDir("src/main/assets-$flavorNameApp")
         }
         getByName(flavorNameInrt) {
-            assets.directories.add("src/main/assets-$flavorNameInrt")
+            assets.srcDir("src/main/assets-$flavorNameInrt")
         }
 
     }
@@ -779,7 +779,7 @@ androidComponents {
 
             @Suppress("UNCHECKED_CAST")
             (outputFileNameProperty as? Property<String>)?.set(
-                variant.applicationId.zip(output.versionName) { appId, versionName ->
+                variant.applicationId.zip(output.versionName.map { it ?: "0" }) { appId: String, versionName: String ->
                     val autojs = appId.substringAfterLast('.')
                     val version = versionName.replace("\\s".toRegex(), "-")
                     val extension = utils.FILE_EXTENSION_APK

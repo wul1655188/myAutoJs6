@@ -16,7 +16,7 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.directories.add("src/main/java")
+            java.srcDir("src/main/java")
         }
     }
 

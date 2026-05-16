@@ -20,9 +20,9 @@ android {
     sourceSets {
         named("main") {
             // 主 Java/Kotlin 目录
-            java.directories.add("src/main/java")
+            java.srcDir("src/main/java")
             // 将资源文件夹指定为 assets 目录
-            assets.directories.add("src/main/assets")
+            assets.srcDir("src/main/assets")
         }
     }
 
