@@ -79,7 +79,7 @@ class LogBottomSheet : BottomSheetDialogFragment() {
         }
 
         // Setup ConsoleView with global console
-        val autoJs = AutoJs.getInstance()
+        val autoJs = AutoJs.instance
         if (autoJs != null) {
             binding.console.setConsole(autoJs.globalConsole)
             
@@ -98,7 +98,7 @@ class LogBottomSheet : BottomSheetDialogFragment() {
 
         // Clear button
         binding.btnClear.setOnClickListener {
-            AutoJs.getInstance()?.globalConsole?.clear()
+            AutoJs.instance?.globalConsole?.clear()
         }
 
         // Open full log activity button

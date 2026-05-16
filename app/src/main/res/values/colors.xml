@@ -55,6 +55,8 @@
 
     <color name="console_view_verbose">#BDBDBD</color>
     <color name="console_view_debug">#111214</color>
+    <color name="console_verbose">@color/console_view_verbose</color>
+    <color name="console_debug">@color/console_view_debug</color>
     <color name="console_view_info">#43A047</color>
     <color name="console_view_warn">#1976D2</color>
     <color name="console_view_error">#C62828</color>

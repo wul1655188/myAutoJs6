@@ -16,18 +16,18 @@ dependencies {
     implementation(libs.kotlin.csv.jvm)
 }
 
-System.getProperty("gradle.java.version.min.supported").let { minJdk ->
+System.getProperty("gradle.java.version.select").let { selectJdk ->
     java {
-        sourceCompatibility = JavaVersion.toVersion(minJdk)
-        targetCompatibility = JavaVersion.toVersion(minJdk)
+        sourceCompatibility = JavaVersion.toVersion("17")
+        targetCompatibility = JavaVersion.toVersion("17")
         toolchain {
-            languageVersion.set(JavaLanguageVersion.of(minJdk))
+            languageVersion.set(JavaLanguageVersion.of(selectJdk))
         }
     }
     kotlin {
         compilerOptions {
-            jvmTarget.set(JvmTarget.fromTarget(minJdk))
+            jvmTarget.set(JvmTarget.fromTarget("17"))
         }
-        jvmToolchain(minJdk.toInt())
+        jvmToolchain(selectJdk.toInt())
     }
 }
