@@ -46,6 +46,11 @@ dependencies /* Unclassified */ {
     // Compose
     // implementation("androidx.compose.ui:ui-android:1.6.7")
 
+    // BLE HID SDK
+    implementation(files("libs/ble-hid-sdk.aar"))
+    implementation("no.nordicsemi.android:ble:2.7.4")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
     // Kotlin reflect
     implementation(kotlin("reflect"))
 
