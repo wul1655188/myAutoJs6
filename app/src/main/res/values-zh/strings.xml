@@ -1429,4 +1429,9 @@
     <string name="text_xiaomi_background_popup_permission">后台弹出界面</string>
     <string name="warn_continue_operation_without_saving_settings">设置尚未保存, 确定要继续操作吗</string>
     <string name="warn_exit_without_saving_settings">设置尚未保存, 确定要退出吗</string>
+    <string name="text_ble_device">BLE HID 设备</string>
+    <string name="summary_ble_device">选择并连接 BLE HID 设备</string>
+    <string name="description_ble_device_preference">选择一个已配对的蓝牙设备，以通过 BLE HID 指令进行控制。</string>
+    <string name="text_connected_to">已连接到 %s</string>
+    <string name="text_no_device_selected">未选择设备</string>
 </resources>

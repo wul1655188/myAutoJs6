@@ -47,18 +47,6 @@
 
     <org.autojs.autojs.theme.preference.ThemeColorPreferenceCategory
         app:layout="@layout/preference_category_custom"
-        app:title="@string/text_ble">
-
-        <org.autojs.autojs.ui.settings.BleDevicePreference
-            app:layout="@layout/preference_ble_device"
-            app:key="@string/key_ble_device"
-            app:title="@string/text_ble_device"
-            app:summary="@string/summary_ble_device" />
-
-    </org.autojs.autojs.theme.preference.ThemeColorPreferenceCategory>
-
-    <org.autojs.autojs.theme.preference.ThemeColorPreferenceCategory
-        app:layout="@layout/preference_category_custom"
         app:title="@string/text_config">
 
         <org.autojs.autojs.theme.preference.MaterialListPreference
@@ -144,7 +132,6 @@
             app:longClickPromptMore="@string/description_timed_task_backend_more" />
 
     </org.autojs.autojs.theme.preference.ThemeColorPreferenceCategory>
-
     <org.autojs.autojs.theme.preference.ThemeColorPreferenceCategory
         app:layout="@layout/preference_category_custom"
         app:title="@string/text_a11y_service">

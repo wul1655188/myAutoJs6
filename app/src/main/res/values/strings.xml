@@ -191,6 +191,7 @@
     <string name="key_working_directory_history" translatable="false">key_$_working_directory_histories</string>
     <string name="key_working_directory_initialized" translatable="false">key_$_working_directory_initialized</string>
     <string name="key_ble_device" translatable="false">key_$_ble_device</string>
+    <string name="key_ble_device_address" translatable="false">key_$_ble_device_address</string>
     <string name="literal_color_int" translatable="false">ColorInt</string>
     <string name="literal_hex_uppercase" translatable="false">HEX</string>
     <string name="literal_hsl_uppercase" translatable="false">HSL</string>
@@ -930,6 +931,8 @@
     <string name="text_ble_device">BLE HID Device</string>
     <string name="summary_ble_device">Select and connect to a BLE HID device</string>
     <string name="description_ble_device_preference">Select a paired Bluetooth device to control via BLE HID commands.</string>
+    <string name="text_connected_to">Connected to %s</string>
+    <string name="text_no_device_selected">No device selected</string>
     <string name="text_configuring_manifest">Configuring manifest</string>
     <string name="text_configuring_package_name">Configuring package name</string>
     <string name="text_confirm_to_clear_all_items">Are you sure to clear all items?</string>

@@ -17,6 +17,7 @@ import androidx.preference.PreferenceViewHolder
 import com.smartfinger.blehidhost.ipc.IBleHidCallback
 import com.smartfinger.blehidhost.ipc.IBleHidService
 import com.smartfinger.blehidhost.service.BleHidService
+import org.autojs.autojs.core.pref.Pref
 import org.autojs.autojs.theme.preference.MaterialPreference
 import org.autojs.autojs6.R
 
@@ -38,8 +39,6 @@ class BleDevicePreference : MaterialPreference {
     @Suppress("unused")
     constructor(context: Context) : super(context)
 
-    private var bleService: IBleHidService? = null
-    private var isServiceBound = false
     private var isConnecting = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val btAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
@@ -52,23 +51,6 @@ class BleDevicePreference : MaterialPreference {
     private val devices: List<BluetoothDevice>
         get() = btAdapter?.bondedDevices?.sortedBy { it.name ?: it.address } ?: emptyList()
 
-    private val serviceConnection = object : android.content.ServiceConnection {
-        override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
-            bleService = IBleHidService.Stub.asInterface(service)
-            isServiceBound = true
-            try {
-                bleService?.registerCallback(bleCallback)
-            } catch (_: Exception) {}
-            mainHandler.post { refreshUI() }
-        }
-
-        override fun onServiceDisconnected(name: android.content.ComponentName?) {
-            bleService = null
-            isServiceBound = false
-            mainHandler.post { refreshUI() }
-        }
-    }
-
     private val bleCallback = object : IBleHidCallback.Stub() {
         override fun onConnectionStateChanged(state: Int, macAddress: String?) {
             mainHandler.post { refreshUI() }
@@ -79,6 +61,55 @@ class BleDevicePreference : MaterialPreference {
                 Toast.makeText(context, "BLE: $message", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    companion object {
+        @Volatile
+        private var sharedBleService: IBleHidService? = null
+        @Volatile
+        private var isServiceBound = false
+        private val callbacks = mutableSetOf<IBleHidCallback>()
+
+        private val sharedServiceConnection = object : android.content.ServiceConnection {
+            override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
+                sharedBleService = IBleHidService.Stub.asInterface(service)
+                isServiceBound = true
+                callbacks.forEach { callback ->
+                    try {
+                        sharedBleService?.registerCallback(callback)
+                    } catch (_: Exception) {}
+                }
+            }
+
+            override fun onServiceDisconnected(name: android.content.ComponentName?) {
+                sharedBleService = null
+                isServiceBound = false
+            }
+        }
+
+        fun bindServiceIfNeeded(context: Context) {
+            if (isServiceBound) return
+            try {
+                val intent = Intent(context, BleHidService::class.java)
+                context.bindService(intent, sharedServiceConnection, Context.BIND_AUTO_CREATE)
+            } catch (_: Exception) {}
+        }
+
+        fun registerCallback(callback: IBleHidCallback) {
+            callbacks.add(callback)
+            try {
+                sharedBleService?.registerCallback(callback)
+            } catch (_: Exception) {}
+        }
+
+        fun unregisterCallback(callback: IBleHidCallback) {
+            callbacks.remove(callback)
+            try {
+                sharedBleService?.unregisterCallback(callback)
+            } catch (_: Exception) {}
+        }
+
+        fun getBleService(): IBleHidService? = sharedBleService
     }
 
     override fun onBindViewHolder(holder: PreferenceViewHolder) {
@@ -111,8 +142,10 @@ class BleDevicePreference : MaterialPreference {
             }
         }
 
-        bindBleService()
-        refreshUI()
+        bindServiceIfNeeded(context)
+        registerCallback(bleCallback)
+        // Defer refreshUI to avoid triggering notifyChanged() during RecyclerView binding
+        holder.itemView.post { refreshUI() }
     }
 
     private fun refreshSpinner() {
@@ -129,6 +162,10 @@ class BleDevicePreference : MaterialPreference {
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinner.adapter = adapter
         spinner.tag = list // store devices list in tag
+        // Restore previously selected device
+        val savedAddr = Pref.getString(R.string.key_ble_device_address, "")
+        val savedIdx = list.indexOfFirst { it.address == savedAddr }
+        if (savedIdx >= 0) spinner.setSelection(savedIdx)
     }
 
     private fun getSelectedDevice(): BluetoothDevice? {
@@ -147,7 +184,8 @@ class BleDevicePreference : MaterialPreference {
             return
         }
         try {
-            bleService?.connectToDevice(device.address)
+            getBleService()?.connectToDevice(device.address)
+            Pref.putString(R.string.key_ble_device_address, device.address)
             isConnecting = true
             refreshUI()
         } catch (e: Exception) {
@@ -158,14 +196,14 @@ class BleDevicePreference : MaterialPreference {
 
     private fun disconnectDevice() {
         try {
-            bleService?.disconnect()
+            getBleService()?.disconnect()
         } catch (_: Exception) {}
         isConnecting = false
     }
 
     private fun refreshUI() {
         val connected = try {
-            bleService?.isConnected ?: false
+            getBleService()?.isConnected ?: false
         } catch (_: Exception) {
             false
         }
@@ -189,7 +227,7 @@ class BleDevicePreference : MaterialPreference {
         val device = getSelectedDevice()
         val deviceName = device?.name ?: device?.address ?: "none"
         val connected = try {
-            bleService?.isConnected ?: false
+            getBleService()?.isConnected ?: false
         } catch (_: Exception) {
             false
         }
@@ -200,25 +238,8 @@ class BleDevicePreference : MaterialPreference {
         }
     }
 
-    private fun bindBleService() {
-        if (isServiceBound) return
-        try {
-            val intent = Intent(context, BleHidService::class.java)
-            context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
-        } catch (_: Exception) {}
-    }
-
-    private fun unbindBleService() {
-        if (isServiceBound) {
-            try { bleService?.unregisterCallback(bleCallback) } catch (_: Exception) {}
-            try { context.unbindService(serviceConnection) } catch (_: Exception) {}
-            bleService = null
-            isServiceBound = false
-        }
-    }
-
     override fun onDetached() {
-        unbindBleService()
+        unregisterCallback(bleCallback)
         deviceSpinner = null
         connectSwitch = null
         super.onDetached()

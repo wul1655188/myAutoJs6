@@ -94,9 +94,7 @@ class DrawerMenuItemViewHolder(itemView: View) : BindableViewHolder<DrawerMenuIt
         mIcon.setImageResource(data.icon)
         mTitle.setText(data.title)
 
-        val subtitle = data.subtitle
-        mSubtitle.text = subtitle
-        mSubtitle.visibility = if (subtitle != null) View.VISIBLE else View.GONE
+        setSubtitle(data.subtitle)
 
         mAntiShake = data.antiShake()
         setSwitch(data)
@@ -104,6 +102,11 @@ class DrawerMenuItemViewHolder(itemView: View) : BindableViewHolder<DrawerMenuIt
     }
 
     fun isChecked() = mSwitchCompat.isChecked
+
+    fun setSubtitle(subtitle: String?) {
+        mSubtitle.text = subtitle
+        mSubtitle.visibility = if (subtitle != null) View.VISIBLE else View.GONE
+    }
 
     private fun setSwitch(item: DrawerMenuItem) {
         if (!item.isSwitchEnabled) {
