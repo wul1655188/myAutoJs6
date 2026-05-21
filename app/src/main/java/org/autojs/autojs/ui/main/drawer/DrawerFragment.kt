@@ -171,7 +171,7 @@ open class DrawerFragment : Fragment() {
 
         mBleDeviceItem = DrawerMenuToggleableItem(
             helper = object : DrawerMenuItemCustomHelper(mContext) {
-                private val connectTimeoutMs = 5_000L
+                private val connectTimeoutMs = 35_000L
                 @Volatile
                 private var connected = false
                 @Volatile
@@ -213,10 +213,11 @@ open class DrawerFragment : Fragment() {
 
                 private val connectTimeoutRunnable = Runnable {
                     if (!connected && connecting) {
-                        Log.d(bleLogTag, "connect timeout, lastAttempt=$lastConnectAttemptAddress, stored=${Pref.getString(R.string.key_ble_device_address, "")}")
+                        val stuckAddr = lastConnectAttemptAddress
+                        Log.d(bleLogTag, "connect timeout, lastAttempt=$stuckAddr, stored=${Pref.getString(R.string.key_ble_device_address, "")}")
                         connecting = false
                         connectTimedOut = true
-                        lastFailedAddress = lastConnectAttemptAddress
+                        lastFailedAddress = stuckAddr
                         runCatching { BleDevicePreference.getBleService()?.disconnect() }
                         mBleDeviceItem.isProgress = false
                         mBleDeviceItem.sync()
@@ -253,6 +254,8 @@ open class DrawerFragment : Fragment() {
                             if (connected) {
                                 connectTimedOut = false
                                 lastFailedAddress = null
+                            } else if (isTerminalBleState(state) && disconnectingAddress == null) {
+                                lastFailedAddress = lastConnectAttemptAddress
                             }
                             handler.removeCallbacks(connectTimeoutRunnable)
                             mBleDeviceItem.isProgress = false
@@ -301,7 +304,9 @@ open class DrawerFragment : Fragment() {
                         connected = false
                         connecting = false
                         connectTimedOut = false
-                        lastFailedAddress = lastConnectAttemptAddress
+                        if (disconnectingAddress == null) {
+                            lastFailedAddress = lastConnectAttemptAddress
+                        }
                         disconnectingAddress = null
                         if (pendingConnectAddress == null) {
                             lastConnectAttemptAddress = null
@@ -361,14 +366,13 @@ open class DrawerFragment : Fragment() {
                         service.disconnect()
                     } else {
                         val addr = resolveDeviceAddress() ?: return@runCatching false
-                        connectTimedOut = false
-                        lastFailedAddress = null
                         Log.d(
                             bleLogTag,
                             "toggle connect, resolved=$addr, stored=${Pref.getString(R.string.key_ble_device_address, "")}, lastAttempt=$lastConnectAttemptAddress, pending=$pendingConnectAddress, disconnecting=$disconnectingAddress, timedOut=$connectTimedOut, connected=$connected, connecting=$connecting"
                         )
-                        val shouldWaitForPreviousAttempt = disconnectingAddress != null ||
-                            ((connected || connecting) && lastConnectAttemptAddress != null && lastConnectAttemptAddress != addr)
+                        val shouldWaitForPreviousAttempt = (disconnectingAddress != null) ||
+                            ((connected || connecting) && lastConnectAttemptAddress != null && lastConnectAttemptAddress != addr) ||
+                            (connectTimedOut && lastConnectAttemptAddress != null)
                         if (shouldWaitForPreviousAttempt) {
                             pendingConnectAddress = addr
                             connecting = false
@@ -380,19 +384,19 @@ open class DrawerFragment : Fragment() {
                             if (disconnectingAddress == null) {
                                 disconnectingAddress = lastConnectAttemptAddress
                                 Log.d(bleLogTag, "queue pending connect to $addr and disconnect previous attempt $lastConnectAttemptAddress")
-                                service.disconnect()
+                                runCatching { service.disconnect() }
                             } else {
                                 Log.d(bleLogTag, "queue pending connect to $addr while waiting disconnect of $disconnectingAddress")
                             }
                         } else {
+                            connectTimedOut = false
+                            lastFailedAddress = null
                             connecting = true
                             mBleDeviceItem.isProgress = true
                             handler.post {
                                 mBleDeviceItem.sync()
                                 refreshDrawerItemImmediately(mBleDeviceItem)
                             }
-                            runCatching { service.disconnect() }
-                            Thread.sleep(250)
                             connectToAddress(addr)
                         }
                     }
