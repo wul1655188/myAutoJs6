@@ -1,16 +1,13 @@
 /**
- * BLE HID SDK — Full Interface Test Script
+ * BLE HID SDK — Full Interface Test Script (with Floaty)
  *
- * Usage in AutoJs6: launch this script, it will handle service binding,
- * connection, execute every BLE command in sequence, and report results.
+ * Usage in AutoJs6: first connect to a BLE device via the drawer,
+ * then launch this script. It will detect the connection and run all tests.
  */
 
 "use strict";
 
-// Adjust this to your ESP32 device's MAC address
-var BLE_DEVICE_ADDRESS = "";
-
-// Screen coordinates for click tests (screen pixels, SDK auto-maps to HID)
+// Screen coordinates for click tests (screen pixels)
 var CLICK_X = 540;
 var CLICK_Y = 1200;
 
@@ -22,8 +19,11 @@ var SWIPE_DUR = 800;
 // Move deltas
 var MOVE_DX = 20, MOVE_DY = 0;
 
+// Delay between each API call (ms)
+var CALL_DELAY_MS = 5000;
+
 // ---- Internal state ----
-var BleHidService, IBleHidService, IBleHidCallback, Intent, Context, ComponentName;
+var BleHidService, IBleHidService, IBleHidCallback, Intent, Context;
 var bleService = null;
 var isBound = false;
 var isConnected = false;
@@ -31,10 +31,62 @@ var testResults = [];
 var testsPassed = 0;
 var testsFailed = 0;
 var currentAction = "";
+var floatyWindow = null;
 
+// ---- Floaty Window ----
+function createFloatyWindow() {
+    floatyWindow = floaty.window(
+        <frame id="root" w="320" h="400" gravity="right|top">
+            <card cardCornerRadius="8dp" cardElevation="4dp"
+                  w="*" h="*" cardBackgroundColor="#F5F5F5">
+                <vertical padding="12dp" w="*" h="*">
+                    <text id="title" text="BLE HID Test"
+                          textSize="16sp" textColor="#333333"
+                          textStyle="bold" gravity="center"
+                          marginBottom="8dp"/>
+                    <frame w="*" h="1dp" backgroundColor="#E0E0E0" marginBottom="8dp"/>
+                    <text id="status" text="Initializing..."
+                          textSize="12sp" textColor="#666666"
+                          gravity="center" marginBottom="8dp"/>
+                    <scroll w="*" h="0" layout_weight="1">
+                        <text id="log" text="" textSize="11sp"
+                              textColor="#555555" lineSpacingMultiplier="1.3"/>
+                    </scroll>
+                    <frame w="*" h="1dp" backgroundColor="#E0E0E0" marginTop="8dp" marginBottom="8dp"/>
+                    <text id="summary" text="Ready"
+                          textSize="10sp" textColor="#999999"
+                          gravity="center"/>
+                </vertical>
+            </card>
+        </frame>
+    );
+    floatyWindow.setPosition(20, 200);
+    return floatyWindow;
+}
+
+function updateFloaty(statusText, logLines, summaryText) {
+    if (!floatyWindow) return;
+    try {
+        floatyWindow.status.setText(statusText || "");
+        floatyWindow.log.setText((logLines || []).join("\n"));
+        if (summaryText) floatyWindow.summary.setText(summaryText);
+    } catch (e) {}
+}
+
+var floatyLogLines = [];
+function appendFloatyLog(msg) {
+    floatyLogLines.push(msg);
+    if (floatyLogLines.length > 30) floatyLogLines.shift();
+    updateFloaty(currentAction, floatyLogLines,
+        "Passed: " + testsPassed + "  Failed: " + testsFailed);
+}
+
+// ---- Logging ----
 function log(msg) {
     var ts = new Date().toLocaleTimeString();
-    console.log("[" + ts + "] " + msg);
+    var line = "[" + ts + "] " + msg;
+    console.log(line);
+    appendFloatyLog(line);
 }
 
 function recordResult(action, ok, detail) {
@@ -53,7 +105,6 @@ function loadClasses() {
         IBleHidCallback = Packages.com.smartfinger.blehidhost.ipc.IBleHidCallback;
         Intent = android.content.Intent;
         Context = android.content.Context;
-        ComponentName = android.content.ComponentName;
         log("Java classes loaded OK");
         return true;
     } catch (e) {
@@ -62,26 +113,23 @@ function loadClasses() {
     }
 }
 
-// ---- Service connection callback (Java implementation) ----
+// ---- Service connection callback ----
 var serviceConnection = null;
 var bleCallback = null;
 
 function createCallbacks() {
-    // BLE callback
     bleCallback = new IBleHidCallback.Stub({
         onConnectionStateChanged: function(state, macAddress) {
-            var stateNames = ["disconnected", "connecting", "connected", "ready", "failed"];
-            var sname = stateNames[state] || "unknown(" + state + ")";
-            log("BLE state: " + sname + "  mac=" + (macAddress || "-"));
-            isConnected = (state === 3); // STATE_READY
+            var stateNames = ["Disconnected", "Connecting", "Connected", "Ready", "Failed"];
+            var sname = stateNames[state] || "Unknown(" + state + ")";
+            log("BLE: " + sname + "  mac=" + (macAddress || "-"));
+            isConnected = (state >= 2);
         },
         onError: function(macAddress, message) {
-            log("BLE error: mac=" + (macAddress || "-") + " msg=" + (message || "-"));
+            log("BLE error: " + (message || "-"));
         }
     });
 
-    // Service connection
-    var self = this;
     serviceConnection = new android.content.ServiceConnection({
         onServiceConnected: function(name, service) {
             bleService = IBleHidService.Stub.asInterface(service);
@@ -121,53 +169,21 @@ function bindService() {
 
 function unbindService() {
     if (!isBound) return;
-    try {
-        bleService.unregisterCallback(bleCallback);
-    } catch (e) {}
-    try {
-        context.unbindService(serviceConnection);
-    } catch (e) {}
+    try { bleService.unregisterCallback(bleCallback); } catch (e) {}
+    try { context.unbindService(serviceConnection); } catch (e) {}
     bleService = null;
     isBound = false;
     isConnected = false;
     log("Unbound");
 }
 
-// ---- Connect / Disconnect ----
-function connect() {
-    if (!bleService) {
-        log("❌ Not bound — cannot connect");
-        recordResult("connect", false, "service not bound");
-        return false;
-    }
-    if (!BLE_DEVICE_ADDRESS) {
-        log("❌ BLE_DEVICE_ADDRESS is empty — set it before running");
-        recordResult("connect", false, "no address");
-        return false;
-    }
+// ---- Check connection (no connect/disconnect — drawer manages that) ----
+function checkConnection() {
+    if (!bleService) return false;
     try {
-        bleService.connectToDevice(BLE_DEVICE_ADDRESS);
-        log("connectToDevice(" + BLE_DEVICE_ADDRESS + ") — waiting 3s...");
-        sleep(3000);
-        isConnected = bleService.isConnected();
-        recordResult("connect", isConnected, BLE_DEVICE_ADDRESS);
-        return isConnected;
+        return bleService.isConnected();
     } catch (e) {
-        log("connect failed: " + e);
-        recordResult("connect", false, e.toString());
         return false;
-    }
-}
-
-function disconnect() {
-    if (!bleService) return;
-    try {
-        bleService.disconnect();
-        sleep(1000);
-        isConnected = false;
-        recordResult("disconnect", true);
-    } catch (e) {
-        recordResult("disconnect", false, e.toString());
     }
 }
 
@@ -177,9 +193,12 @@ function testCommand(actionName, actionFn) {
         recordResult(actionName, false, "not connected");
         return;
     }
+    currentAction = actionName;
+    updateFloaty(currentAction, floatyLogLines);
+    log("--- " + actionName + " ---");
     try {
         actionFn();
-        sleep(500);
+        sleep(CALL_DELAY_MS);
         recordResult(actionName, true);
     } catch (e) {
         recordResult(actionName, false, e.toString());
@@ -195,9 +214,15 @@ function runAllTests() {
     testCommand("recents",   function() { bleService.recents(); });
 
     // Pointer
-    testCommand("leftClick", function() { bleService.leftClick(CLICK_X, CLICK_Y); });
-    testCommand("move",      function() { bleService.move(MOVE_DX, MOVE_DY); });
-    testCommand("move(-dx)", function() { bleService.move(-MOVE_DX, 0); });
+    testCommand("leftClick(" + CLICK_X + "," + CLICK_Y + ")", function() {
+        bleService.leftClick(CLICK_X, CLICK_Y);
+    });
+    testCommand("move(" + MOVE_DX + "," + MOVE_DY + ")", function() {
+        bleService.move(MOVE_DX, MOVE_DY);
+    });
+    testCommand("move(" + (-MOVE_DX) + ",0)", function() {
+        bleService.move(-MOVE_DX, 0);
+    });
 
     // Directional swipes
     testCommand("leftSwipe",  function() { bleService.leftSwipe(); });
@@ -214,7 +239,10 @@ function runAllTests() {
         bleService.customSwipe(SWIPE_X1, SWIPE_Y1, SWIPE_X2, SWIPE_Y2, SWIPE_DUR);
     });
 
-    log("\n========== Results: " + testsPassed + " passed, " + testsFailed + " failed ==========");
+    log("\n========== Test Complete: " + testsPassed + " passed, " + testsFailed + " failed ==========");
+    currentAction = "Done";
+    updateFloaty(currentAction, floatyLogLines,
+        "Passed: " + testsPassed + "  Failed: " + testsFailed);
     for (var i = 0; i < testResults.length; i++) {
         log(testResults[i]);
     }
@@ -223,9 +251,12 @@ function runAllTests() {
 // ---- Main ----
 (function() {
     log("BLE HID Test Script starting...");
+    createFloatyWindow();
+    sleep(300);
 
     if (!loadClasses()) {
         log("Cannot load BLE SDK classes — is the SDK integrated?");
+        updateFloaty("Error", floatyLogLines, "Failed to load classes");
         return;
     }
 
@@ -233,24 +264,45 @@ function runAllTests() {
 
     if (!bindService()) {
         log("Cannot bind BLE service");
-        return;
-    }
-    sleep(500);
-
-    if (!BLE_DEVICE_ADDRESS) {
-        log("Set BLE_DEVICE_ADDRESS at the top of this script to your ESP32 MAC");
-        // Don't fail — user can set it and run again
+        updateFloaty("Error", floatyLogLines, "Failed to bind service");
         return;
     }
 
-    if (connect()) {
-        sleep(500);
-        runAllTests();
-        sleep(500);
-        disconnect();
+    // Wait for service binding to complete
+    var waitCount = 0;
+    while (!bleService && waitCount < 20) {
+        sleep(250);
+        waitCount++;
     }
 
-    sleep(300);
+    if (!bleService) {
+        log("Service not bound — connect a BLE device in the drawer first");
+        updateFloaty("Not connected", floatyLogLines,
+            "Please connect a BLE device in the drawer first");
+        toast("请先在侧边栏连接蓝牙设备");
+        return;
+    }
+
+    // Check if already connected (via drawer)
+    isConnected = checkConnection();
+    if (!isConnected) {
+        log("BLE not connected — connect a BLE device in the drawer first");
+        updateFloaty("Not connected", floatyLogLines,
+            "Please connect a BLE device in the drawer first.");
+        toast("请先在侧边栏连接蓝牙设备");
+        unbindService();
+        return;
+    }
+
+    log("BLE connected, running tests...");
+    updateFloaty("Running tests...", floatyLogLines);
+
+    runAllTests();
+
+    log("Complete. Keep floaty window open for 10s to review results.");
+    sleep(10000);
+    floatyWindow.close();
+    floatyWindow = null;
     unbindService();
-    log("Test complete.");
+    log("Test done.");
 })();
