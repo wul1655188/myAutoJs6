@@ -20,6 +20,7 @@ import com.smartfinger.blehidhost.service.BleHidService
 import org.autojs.autojs.core.pref.Pref
 import org.autojs.autojs.theme.preference.MaterialPreference
 import org.autojs.autojs6.R
+import java.util.concurrent.CopyOnWriteArraySet
 
 class BleDevicePreference : MaterialPreference {
 
@@ -39,9 +40,9 @@ class BleDevicePreference : MaterialPreference {
     @Suppress("unused")
     constructor(context: Context) : super(context)
 
-    private var isConnecting = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val btAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
+    private val uiRefreshListener = Runnable { mainHandler.post { refreshUI() } }
 
     // Bound views
     private var deviceSpinner: Spinner? = null
@@ -51,24 +52,16 @@ class BleDevicePreference : MaterialPreference {
     private val devices: List<BluetoothDevice>
         get() = btAdapter?.bondedDevices?.sortedBy { it.name ?: it.address } ?: emptyList()
 
-    private val bleCallback = object : IBleHidCallback.Stub() {
-        override fun onConnectionStateChanged(state: Int, macAddress: String?) {
-            mainHandler.post { refreshUI() }
-        }
-
-        override fun onError(macAddress: String?, message: String?) {
-            mainHandler.post {
-                Toast.makeText(context, "BLE: $message", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     companion object {
         @Volatile
         private var sharedBleService: IBleHidService? = null
         @Volatile
         private var isServiceBound = false
         private val callbacks = mutableSetOf<IBleHidCallback>()
+        private val uiListeners = CopyOnWriteArraySet<Runnable>()
+
+        @Volatile
+        private var sharedConnectionState: BleConnectionStateHelper? = null
 
         private val sharedServiceConnection = object : android.content.ServiceConnection {
             override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
@@ -79,6 +72,8 @@ class BleDevicePreference : MaterialPreference {
                         sharedBleService?.registerCallback(callback)
                     } catch (_: Exception) {}
                 }
+                sharedConnectionState?.syncFromService()
+                notifyUiListeners()
             }
 
             override fun onServiceDisconnected(name: android.content.ComponentName?) {
@@ -87,11 +82,39 @@ class BleDevicePreference : MaterialPreference {
             }
         }
 
+        fun getConnectionState(context: Context): BleConnectionStateHelper {
+            val appContext = context.applicationContext
+            return sharedConnectionState ?: synchronized(this) {
+                sharedConnectionState ?: BleConnectionStateHelper(
+                    appContext,
+                    logTag = "BleConnection",
+                    onUiUpdate = { notifyUiListeners() },
+                ).also { state ->
+                    sharedConnectionState = state
+                    registerCallback(state.bleCallback)
+                    state.syncFromService()
+                }
+            }
+        }
+
+        fun addUiListener(listener: Runnable) {
+            uiListeners.add(listener)
+        }
+
+        fun removeUiListener(listener: Runnable) {
+            uiListeners.remove(listener)
+        }
+
+        private fun notifyUiListeners() {
+            uiListeners.forEach { it.run() }
+        }
+
         fun bindServiceIfNeeded(context: Context) {
+            getConnectionState(context)
             if (isServiceBound) return
             try {
-                val intent = Intent(context, BleHidService::class.java)
-                context.bindService(intent, sharedServiceConnection, Context.BIND_AUTO_CREATE)
+                val intent = Intent(context.applicationContext, BleHidService::class.java)
+                context.applicationContext.bindService(intent, sharedServiceConnection, Context.BIND_AUTO_CREATE)
             } catch (_: Exception) {}
         }
 
@@ -120,39 +143,40 @@ class BleDevicePreference : MaterialPreference {
         deviceSpinner?.isClickable = true
         connectSwitch = holder.findViewById(R.id.bleConnectSwitch) as? SwitchCompat
 
-        // Populate spinner
         refreshSpinner()
 
-        // Switch listener
         connectSwitch?.setOnCheckedChangeListener(null)
         connectSwitch?.setOnCheckedChangeListener { _: CompoundButton?, checked: Boolean ->
-            if (checked && !isConnecting) {
+            val state = getConnectionState(context)
+            if (checked && !state.isActive) {
                 connectToSelectedDevice()
-            } else if (!checked) {
-                disconnectDevice()
+            } else if (!checked && state.isActive) {
+                state.userDisconnect()
                 refreshUI()
             }
         }
 
-        // Spinner selection — save to Pref and update summary, no action until switch is toggled
         deviceSpinner?.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 @Suppress("UNCHECKED_CAST")
                 val list = parent?.tag as? List<BluetoothDevice>
                 val device = list?.getOrNull(position)
                 if (device != null) {
+                    val previousAddr = Pref.getString(R.string.key_ble_device_address, "")
+                    if (previousAddr.isNotEmpty() && previousAddr != device.address) {
+                        getConnectionState(context).userDisconnect()
+                    }
                     Pref.putString(R.string.key_ble_device_address, device.address)
                 }
-                updateSummary()
+                refreshUI()
             }
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {
-                updateSummary()
+                refreshUI()
             }
         }
 
         bindServiceIfNeeded(context)
-        registerCallback(bleCallback)
-        // Defer refreshUI to avoid triggering notifyChanged() during RecyclerView binding
+        addUiListener(uiRefreshListener)
         holder.itemView.post { refreshUI() }
     }
 
@@ -169,8 +193,7 @@ class BleDevicePreference : MaterialPreference {
         }
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinner.adapter = adapter
-        spinner.tag = list // store devices list in tag
-        // Restore previously selected device
+        spinner.tag = list
         val savedAddr = Pref.getString(R.string.key_ble_device_address, "")
         val savedIdx = list.indexOfFirst { it.address == savedAddr }
         if (savedIdx >= 0) spinner.setSelection(savedIdx)
@@ -187,43 +210,30 @@ class BleDevicePreference : MaterialPreference {
     private fun connectToSelectedDevice() {
         val device = getSelectedDevice()
         if (device == null) {
-            Toast.makeText(context, "No device selected", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.text_no_device_selected), Toast.LENGTH_SHORT).show()
             connectSwitch?.isChecked = false
             return
         }
-        try {
-            getBleService()?.connectToDevice(device.address)
-            Pref.putString(R.string.key_ble_device_address, device.address)
-            isConnecting = true
-            refreshUI()
-        } catch (e: Exception) {
-            Toast.makeText(context, "Connect failed: ${e.message}", Toast.LENGTH_SHORT).show()
+        Pref.putString(R.string.key_ble_device_address, device.address)
+        val started = getConnectionState(context).userConnect(device.address)
+        if (!started) {
+            Toast.makeText(context, context.getString(R.string.text_connection_cannot_be_established), Toast.LENGTH_SHORT).show()
             connectSwitch?.isChecked = false
         }
-    }
-
-    private fun disconnectDevice() {
-        try {
-            getBleService()?.disconnect()
-        } catch (_: Exception) {}
-        isConnecting = false
+        refreshUI()
     }
 
     private fun refreshUI() {
-        val connected = try {
-            getBleService()?.isConnected ?: false
-        } catch (_: Exception) {
-            false
-        }
-        isConnecting = false
+        val state = getConnectionState(context)
+        state.syncFromService()
 
         connectSwitch?.setOnCheckedChangeListener(null)
-        connectSwitch?.isChecked = connected
+        connectSwitch?.isChecked = state.isActive
         connectSwitch?.setOnCheckedChangeListener { _: CompoundButton?, checked: Boolean ->
-            if (checked && !isConnecting) {
+            if (checked && !state.isActive) {
                 connectToSelectedDevice()
-            } else if (!checked) {
-                disconnectDevice()
+            } else if (!checked && state.isActive) {
+                state.userDisconnect()
                 refreshUI()
             }
         }
@@ -233,21 +243,13 @@ class BleDevicePreference : MaterialPreference {
 
     private fun updateSummary() {
         val device = getSelectedDevice()
-        val deviceName = device?.name ?: device?.address ?: "none"
-        val connected = try {
-            getBleService()?.isConnected ?: false
-        } catch (_: Exception) {
-            false
-        }
-        summary = when {
-            connected -> "Connected to $deviceName"
-            isConnecting -> "Connecting to $deviceName..."
-            else -> "Tap switch to connect to $deviceName"
-        }
+        val addr = device?.address
+        val name = device?.name ?: device?.address
+        summary = getConnectionState(context).buildSubtitle(addr, name)
     }
 
     override fun onDetached() {
-        unregisterCallback(bleCallback)
+        removeUiListener(uiRefreshListener)
         deviceSpinner = null
         connectSwitch = null
         super.onDetached()

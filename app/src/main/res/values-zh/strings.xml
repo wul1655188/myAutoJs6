@@ -1434,4 +1434,5 @@
     <string name="description_ble_device_preference">选择一个已配对的蓝牙设备，以通过 BLE HID 指令进行控制。</string>
     <string name="text_connected_to">已连接到 %s</string>
     <string name="text_no_device_selected">未选择设备</string>
+    <string name="text_ble_tap_switch_to_connect">打开开关以连接至 %s</string>
 </resources>

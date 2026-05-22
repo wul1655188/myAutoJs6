@@ -929,10 +929,11 @@
     <string name="text_config">Config</string>
     <string name="text_ble">BLE Device</string>
     <string name="text_ble_device">HID 设备</string>
-    <string name="summary_ble_device">Select and connect to a BLE HID device</string>
-    <string name="description_ble_device_preference">Select a paired Bluetooth device to control via BLE HID commands.</string>
-    <string name="text_connected_to">Connected to %s</string>
-    <string name="text_no_device_selected">No device selected</string>
+    <string name="summary_ble_device">选择并连接 BLE HID 设备</string>
+    <string name="description_ble_device_preference">选择一个已配对的蓝牙设备，以通过 BLE HID 指令进行控制。</string>
+    <string name="text_connected_to">已连接到 %s</string>
+    <string name="text_no_device_selected">未选择设备</string>
+    <string name="text_ble_tap_switch_to_connect">打开开关以连接至 %s</string>
     <string name="text_configuring_manifest">Configuring manifest</string>
     <string name="text_configuring_package_name">Configuring package name</string>
     <string name="text_confirm_to_clear_all_items">Are you sure to clear all items?</string>
@@ -946,7 +947,7 @@
     <string name="text_connected">Connected</string>
     <string name="text_connected_count_with_colon">Connected: %1$d</string>
     <string name="text_connecting">Connecting</string>
-    <string name="text_connecting_to_host" tools:ignore="TypographyEllipsis">Connecting to \"%1$s\"...</string>
+    <string name="text_connecting_to_host" tools:ignore="TypographyEllipsis">正在连接至 \"%1$s\"...</string>
     <string name="text_connection_cannot_be_established">Connection cannot be established</string>
     <string name="text_connection_failed">Connection failed</string>
     <string name="text_console">Console</string>

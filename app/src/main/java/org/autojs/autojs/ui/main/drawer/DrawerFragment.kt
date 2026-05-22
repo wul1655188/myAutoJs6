@@ -2,10 +2,7 @@ package org.autojs.autojs.ui.main.drawer
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothProfile
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
@@ -21,7 +18,6 @@ import io.reactivex.Observable
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.CompositeDisposable
 import com.afollestad.materialdialogs.MaterialDialog
-import com.smartfinger.blehidhost.ipc.IBleHidCallback
 import org.autojs.autojs.AutoJs
 import org.autojs.autojs.app.tool.FloatingButtonTool
 import org.autojs.autojs.app.tool.JsonSocketClientTool
@@ -60,6 +56,7 @@ import org.autojs.autojs.ui.floating.FloatyWindowManger
 import org.autojs.autojs.ui.fragment.BindingDelegates.viewBinding
 import org.autojs.autojs.ui.main.MainActivity
 import org.autojs.autojs.ui.settings.AboutActivity
+import org.autojs.autojs.ui.settings.BleConnectionStateHelper
 import org.autojs.autojs.ui.settings.BleDevicePreference
 import org.autojs.autojs.ui.settings.PreferencesActivity
 import org.autojs.autojs.ui.storage.TrashActivity
@@ -93,6 +90,8 @@ import org.autojs.autojs.util.App as UtilApp
 open class DrawerFragment : Fragment() {
 
     private val bleLogTag = "DrawerBle"
+
+    private var bleDrawerUiListener: Runnable? = null
 
     private val binding by viewBinding(FragmentDrawerBinding::bind)
 
@@ -171,167 +170,8 @@ open class DrawerFragment : Fragment() {
 
         mBleDeviceItem = DrawerMenuToggleableItem(
             helper = object : DrawerMenuItemCustomHelper(mContext) {
-                private val connectTimeoutMs = 35_000L
-                @Volatile
-                private var connected = false
-                @Volatile
-                private var connecting = false
-                @Volatile
-                private var connectTimedOut = false
-                @Volatile
-                private var lastConnectAttemptAddress: String? = null
-                @Volatile
-                private var pendingConnectAddress: String? = null
-                @Volatile
-                private var disconnectingAddress: String? = null
-                @Volatile
-                private var lastFailedAddress: String? = null
-                private val handler = Handler(Looper.getMainLooper())
-
-                private fun isTerminalBleState(state: Int): Boolean {
-                    return state == BluetoothProfile.STATE_DISCONNECTED || state == 4
-                }
-
-                private fun connectToAddress(addr: String) {
-                    val service = BleDevicePreference.getBleService() ?: return
-                    connectTimedOut = false
-                    connecting = true
-                    connected = false
-                    lastFailedAddress = null
-                    mBleDeviceItem.isProgress = true
-                    lastConnectAttemptAddress = addr
-                    disconnectingAddress = null
-                    pendingConnectAddress = null
-                    Log.d(
-                        bleLogTag,
-                        "connectToAddress start addr=$addr, stored=${Pref.getString(R.string.key_ble_device_address, "")}"
-                    )
-                    service.connectToDevice(addr)
-                    handler.removeCallbacks(connectTimeoutRunnable)
-                    handler.postDelayed(connectTimeoutRunnable, connectTimeoutMs)
-                }
-
-                private val connectTimeoutRunnable = Runnable {
-                    if (!connected && connecting) {
-                        val stuckAddr = lastConnectAttemptAddress
-                        Log.d(bleLogTag, "connect timeout, lastAttempt=$stuckAddr, stored=${Pref.getString(R.string.key_ble_device_address, "")}")
-                        connecting = false
-                        connectTimedOut = true
-                        lastFailedAddress = stuckAddr
-                        runCatching { BleDevicePreference.getBleService()?.disconnect() }
-                        mBleDeviceItem.isProgress = false
-                        mBleDeviceItem.sync()
-                        refreshDrawerItemImmediately(mBleDeviceItem)
-                    }
-                }
-
-                private val bleStateCallback = object : IBleHidCallback.Stub() {
-                    override fun onConnectionStateChanged(state: Int, macAddress: String?) {
-                        Log.d(
-                            bleLogTag,
-                            "onConnectionStateChanged state=$state mac=$macAddress stored=${Pref.getString(R.string.key_ble_device_address, "")} lastAttempt=$lastConnectAttemptAddress pending=$pendingConnectAddress"
-                        )
-                        val isForCurrentAttempt = macAddress == null || macAddress == lastConnectAttemptAddress
-                        if (!isForCurrentAttempt) {
-                            if (macAddress != null && macAddress == disconnectingAddress && isTerminalBleState(state)) {
-                                disconnectingAddress = null
-                                handler.post {
-                                    pendingConnectAddress?.let { nextAddr ->
-                                        Log.d(bleLogTag, "disconnect finished for previous device, continue pending connect to $nextAddr")
-                                        connectToAddress(nextAddr)
-                                        mBleDeviceItem.sync()
-                                        refreshDrawerItemImmediately(mBleDeviceItem)
-                                    }
-                                }
-                                return
-                            }
-                            Log.d(bleLogTag, "ignore stale state callback for mac=$macAddress")
-                            return
-                        }
-                        connected = (state == BluetoothProfile.STATE_CONNECTED)
-                        if (connected || isTerminalBleState(state)) {
-                            connecting = false
-                            if (connected) {
-                                connectTimedOut = false
-                                lastFailedAddress = null
-                            } else if (isTerminalBleState(state) && disconnectingAddress == null) {
-                                lastFailedAddress = lastConnectAttemptAddress
-                            }
-                            handler.removeCallbacks(connectTimeoutRunnable)
-                            mBleDeviceItem.isProgress = false
-                            if (isTerminalBleState(state)) {
-                                disconnectingAddress = null
-                                if (pendingConnectAddress == null) {
-                                    lastConnectAttemptAddress = null
-                                }
-                            }
-                        }
-                        handler.post {
-                            mBleDeviceItem.sync()
-                            refreshDrawerItemImmediately(mBleDeviceItem)
-                            if (!connected && isTerminalBleState(state) && pendingConnectAddress != null) {
-                                pendingConnectAddress?.let { nextAddr ->
-                                    Log.d(bleLogTag, "current attempt finished, continue pending connect to $nextAddr")
-                                    connectToAddress(nextAddr)
-                                    mBleDeviceItem.sync()
-                                    refreshDrawerItemImmediately(mBleDeviceItem)
-                                }
-                            }
-                        }
-                    }
-                    override fun onError(macAddress: String?, message: String?) {
-                        Log.d(
-                            bleLogTag,
-                            "onError mac=$macAddress message=$message stored=${Pref.getString(R.string.key_ble_device_address, "")} lastAttempt=$lastConnectAttemptAddress pending=$pendingConnectAddress"
-                        )
-                        val isForCurrentAttempt = macAddress == null || macAddress == lastConnectAttemptAddress
-                        if (!isForCurrentAttempt) {
-                            if (macAddress != null && macAddress == disconnectingAddress) {
-                                disconnectingAddress = null
-                                handler.post {
-                                    pendingConnectAddress?.let { nextAddr ->
-                                        Log.d(bleLogTag, "disconnect error received for previous device, continue pending connect to $nextAddr")
-                                        connectToAddress(nextAddr)
-                                        mBleDeviceItem.sync()
-                                        refreshDrawerItemImmediately(mBleDeviceItem)
-                                    }
-                                }
-                                return
-                            }
-                            Log.d(bleLogTag, "ignore stale error callback for mac=$macAddress")
-                            return
-                        }
-                        connected = false
-                        connecting = false
-                        connectTimedOut = false
-                        if (disconnectingAddress == null) {
-                            lastFailedAddress = lastConnectAttemptAddress
-                        }
-                        disconnectingAddress = null
-                        if (pendingConnectAddress == null) {
-                            lastConnectAttemptAddress = null
-                        }
-                        handler.removeCallbacks(connectTimeoutRunnable)
-                        handler.post {
-                            mBleDeviceItem.isProgress = false
-                            mBleDeviceItem.sync()
-                            refreshDrawerItemImmediately(mBleDeviceItem)
-                            pendingConnectAddress?.let { nextAddr ->
-                                Log.d(bleLogTag, "error received for current attempt, continue pending connect to $nextAddr")
-                                connectToAddress(nextAddr)
-                                mBleDeviceItem.sync()
-                                refreshDrawerItemImmediately(mBleDeviceItem)
-                            }
-                        }
-                    }
-                }
-
-                init {
-                    BleDevicePreference.registerCallback(bleStateCallback)
-                    connected = try {
-                        BleDevicePreference.getBleService()?.isConnected ?: false
-                    } catch (_: Exception) { false }
-                }
+                private val bleState: BleConnectionStateHelper
+                    get() = BleDevicePreference.getConnectionState(mContext)
 
                 private fun resolveDeviceAddress(): String? {
                     val stored = Pref.getString(R.string.key_ble_device_address, "")
@@ -343,89 +183,21 @@ open class DrawerFragment : Fragment() {
                 }
 
                 override val isActive: Boolean
-                    get() = try {
-                        BleDevicePreference.getBleService()?.isConnected == true ||
-                            connected ||
-                            connecting ||
-                            pendingConnectAddress != null
-                    } catch (_: Exception) {
-                        connected || connecting || pendingConnectAddress != null
-                    }
+                    get() = bleState.isActive
 
                 override fun toggle(): Boolean = runCatching {
-                    val service = BleDevicePreference.getBleService() ?: return@runCatching false
                     if (isActive) {
-                        Log.d(bleLogTag, "toggle disconnect, stored=${Pref.getString(R.string.key_ble_device_address, "")}, lastAttempt=$lastConnectAttemptAddress pending=$pendingConnectAddress")
-                        handler.removeCallbacks(connectTimeoutRunnable)
-                        connecting = false
-                        connectTimedOut = false
-                        lastFailedAddress = null
-                        pendingConnectAddress = null
-                        mBleDeviceItem.isProgress = false
-                        disconnectingAddress = lastConnectAttemptAddress
-                        service.disconnect()
+                        bleState.userDisconnect()
                     } else {
                         val addr = resolveDeviceAddress() ?: return@runCatching false
-                        Log.d(
-                            bleLogTag,
-                            "toggle connect, resolved=$addr, stored=${Pref.getString(R.string.key_ble_device_address, "")}, lastAttempt=$lastConnectAttemptAddress, pending=$pendingConnectAddress, disconnecting=$disconnectingAddress, timedOut=$connectTimedOut, connected=$connected, connecting=$connecting"
-                        )
-                        val shouldWaitForPreviousAttempt = (disconnectingAddress != null) ||
-                            ((connected || connecting) && lastConnectAttemptAddress != null && lastConnectAttemptAddress != addr) ||
-                            (connectTimedOut && lastConnectAttemptAddress != null)
-                        if (shouldWaitForPreviousAttempt) {
-                            pendingConnectAddress = addr
-                            connecting = false
-                            mBleDeviceItem.isProgress = true
-                            handler.post {
-                                mBleDeviceItem.sync()
-                                refreshDrawerItemImmediately(mBleDeviceItem)
-                            }
-                            if (disconnectingAddress == null) {
-                                disconnectingAddress = lastConnectAttemptAddress
-                                Log.d(bleLogTag, "queue pending connect to $addr and disconnect previous attempt $lastConnectAttemptAddress")
-                                runCatching { service.disconnect() }
-                            } else {
-                                Log.d(bleLogTag, "queue pending connect to $addr while waiting disconnect of $disconnectingAddress")
-                            }
-                        } else {
-                            connectTimedOut = false
-                            lastFailedAddress = null
-                            connecting = true
-                            mBleDeviceItem.isProgress = true
-                            handler.post {
-                                mBleDeviceItem.sync()
-                                refreshDrawerItemImmediately(mBleDeviceItem)
-                            }
-                            connectToAddress(addr)
-                        }
+                        bleState.userConnect(addr)
                     }
                 }.isSuccess
 
                 override fun refreshSubtitle(aimState: Boolean) {
                     val addr = resolveDeviceAddress()
-                    val name = addr?.let { a ->
-                        BluetoothAdapter.getDefaultAdapter()
-                            ?.bondedDevices
-                            ?.find { it.address == a }
-                            ?.name ?: a
-                    }
-                    val pendingName = pendingConnectAddress?.let { a ->
-                        BluetoothAdapter.getDefaultAdapter()
-                            ?.bondedDevices
-                            ?.find { it.address == a }
-                            ?.name ?: a
-                    }
-                    mBleDeviceItem.subtitle = when {
-                        disconnectingAddress != null && pendingName != null ->
-                            context.getString(R.string.text_connecting_to_host, pendingName)
-                        connecting && name != null -> context.getString(R.string.text_connecting_to_host, name)
-                        connected && name != null -> context.getString(R.string.text_connected_to, name)
-                        lastFailedAddress != null && name != null && lastFailedAddress == addr ->
-                            "$name | ${context.getString(R.string.text_connection_failed)}"
-                        name != null -> name
-                        else -> context.getString(R.string.text_no_device_selected)
-                    }
+                    val name = bleState.resolveDeviceName(addr)
+                    mBleDeviceItem.subtitle = bleState.buildSubtitle(addr, name)
                     mBleDeviceItem.setChecked(mBleDeviceItem.isChecked)
                 }
             },
@@ -442,6 +214,14 @@ open class DrawerFragment : Fragment() {
                 intent.startSafely(it.context)
             }
         }
+
+        val bleState = BleDevicePreference.getConnectionState(mContext)
+        bleState.onProgressChanged = { mBleDeviceItem.isProgress = it }
+        bleDrawerUiListener = Runnable {
+            mBleDeviceItem.sync()
+            refreshDrawerItemImmediately(mBleDeviceItem)
+        }.also { BleDevicePreference.addUiListener(it) }
+        BleDevicePreference.bindServiceIfNeeded(mContext)
 
         mAccessibilityServiceItem = DrawerMenuToggleableItem(
             helper = object : AccessibilityService(mContext) {
@@ -1085,6 +865,9 @@ open class DrawerFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        bleDrawerUiListener?.let { BleDevicePreference.removeUiListener(it) }
+        bleDrawerUiListener = null
+        BleDevicePreference.getConnectionState(requireContext()).onProgressChanged = null
         super.onDestroyView()
         privateDrawerMenu = null
         privateContext = null
