@@ -63,7 +63,12 @@ public class ProjectConfig implements FuzzyDeserializer.OriginalJsonKeyAware {
             "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
             "android.permission.RECEIVE_BOOT_COMPLETED",
             "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
-            "android.permission.SYSTEM_ALERT_WINDOW"
+            "android.permission.SYSTEM_ALERT_WINDOW",
+            "android.permission.BLUETOOTH",
+            "android.permission.BLUETOOTH_ADMIN",
+            "android.permission.BLUETOOTH_CONNECT",
+            "android.permission.BLUETOOTH_SCAN",
+            "android.permission.BLUETOOTH_ADVERTISE"
     );
 
     private static final Gson sGson = new GsonBuilder()

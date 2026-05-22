@@ -66,6 +66,18 @@
 
     <org.autojs.autojs.theme.preference.ThemeColorPreferenceCategory
         app:layout="@layout/preference_category_custom"
+        android:title="@string/text_ble">
+
+        <org.autojs.autojs.ui.settings.BleDevicePreference
+            app:layout="@layout/preference_ble_device"
+            app:key="@string/key_ble_device"
+            app:title="@string/text_ble_device"
+            app:summary="@string/summary_ble_device" />
+
+    </org.autojs.autojs.theme.preference.ThemeColorPreferenceCategory>
+
+    <org.autojs.autojs.theme.preference.ThemeColorPreferenceCategory
+        app:layout="@layout/preference_category_custom"
         android:title="@string/text_a11y_service">
 
         <org.autojs.autojs.theme.preference.ThemeColorSwitchPreference

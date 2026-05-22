@@ -116,6 +116,8 @@ class BleDevicePreference : MaterialPreference {
         super.onBindViewHolder(holder)
 
         deviceSpinner = holder.findViewById(R.id.bleDeviceSpinner) as? Spinner
+        deviceSpinner?.isFocusable = true
+        deviceSpinner?.isClickable = true
         connectSwitch = holder.findViewById(R.id.bleConnectSwitch) as? SwitchCompat
 
         // Populate spinner
@@ -132,9 +134,15 @@ class BleDevicePreference : MaterialPreference {
             }
         }
 
-        // Spinner selection — just update summary, no action until switch is toggled
+        // Spinner selection — save to Pref and update summary, no action until switch is toggled
         deviceSpinner?.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                @Suppress("UNCHECKED_CAST")
+                val list = parent?.tag as? List<BluetoothDevice>
+                val device = list?.getOrNull(position)
+                if (device != null) {
+                    Pref.putString(R.string.key_ble_device_address, device.address)
+                }
                 updateSummary()
             }
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {
